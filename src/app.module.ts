@@ -37,13 +37,17 @@ export class AppModule implements NestModule {
     const routesUrl = this.configService.get<string>('services.routes');
 
     // Proxy hacia chat-service (HTTP + WebSocket)
+    // onProxyReq elimina Authorization para que el chat-service no revalide
+    // el JWT — confía en los headers X-User-Id / X-User-Role del gateway.
     consumer
       .apply(
         createProxyMiddleware({
           target: chatUrl,
           changeOrigin: true,
           pathRewrite: { '^/api/chat': '' },
-          ws: true,
+          onProxyReq: (proxyReq) => {
+            proxyReq.removeHeader('authorization');
+          },
         }),
       )
       .forRoutes({ path: 'api/chat/*', method: RequestMethod.ALL });
@@ -57,6 +61,9 @@ export class AppModule implements NestModule {
             target: routesUrl,
             changeOrigin: true,
             pathRewrite: { '^/api/routes': '' },
+            onProxyReq: (proxyReq) => {
+              proxyReq.removeHeader('authorization');
+            },
           }),
         )
         .forRoutes({ path: 'api/routes/*', method: RequestMethod.ALL });
