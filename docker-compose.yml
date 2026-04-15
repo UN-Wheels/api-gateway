@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  api-gateway:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - JWT_SECRET=${JWT_SECRET}
+      - AUTH_SERVICE_URL=${AUTH_SERVICE_URL}
+      - CHAT_SERVICE_URL=${CHAT_SERVICE_URL}
+      - ROUTES_SERVICE_URL=${ROUTES_SERVICE_URL}
+      - COOKIE_MAX_AGE=${COOKIE_MAX_AGE:-1800}
+      - FRONTEND_URL=${FRONTEND_URL}
+    env_file:
+      - .env
