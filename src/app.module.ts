@@ -7,6 +7,7 @@ import {
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import * as jwt from 'jsonwebtoken';
 
 import configuration from './config/configuration';
 import { AuthModule } from './auth/auth.module';
@@ -35,18 +36,58 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     const chatUrl = this.configService.get<string>('services.chat');
     const routesUrl = this.configService.get<string>('services.routes');
+    const jwtSecret = this.configService.get<string>('jwt.secret');
+    const cookieName = this.configService.get<string>('cookie.name');
 
-    // Proxy hacia chat-service (HTTP + WebSocket)
-    // onProxyReq elimina Authorization para que el chat-service no revalide
-    // el JWT — confía en los headers X-User-Id / X-User-Role del gateway.
+    // Proxy hacia chat-service (HTTP + WebSocket).
+    // onProxyReq valida el JWT aquí porque el proxy middleware corre ANTES que
+    // los guards de NestJS — el JwtAuthGuard global nunca alcanza estas rutas.
+    // Se inyectan X-User-Id / X-User-Role para que el chat-service confíe en ellos
+    // sin re-validar el JWT.
     consumer
       .apply(
         createProxyMiddleware({
           target: chatUrl,
           changeOrigin: true,
           pathRewrite: { '^/api/chat': '' },
-          onProxyReq: (proxyReq) => {
+          onProxyReq: (proxyReq, req: any) => {
+            // onProxyReq se dispara también en upgrades WebSocket — ignorar,
+            // ya que en ese contexto los headers no se pueden modificar.
+            if (req.headers?.upgrade === 'websocket') return;
+
+            // ── 1. Modificar headers ANTES de write() ──────────────────────
+            // Validar JWT e inyectar X-User-Id.
+            // El guard global de NestJS nunca alcanza estas rutas porque el
+            // proxy middleware las intercepta primero.
+            const token =
+              req.cookies?.[cookieName] ||
+              req.headers?.authorization?.replace(/^Bearer\s+/i, '');
+
+            if (token) {
+              try {
+                const decoded = jwt.verify(token, jwtSecret!) as any;
+                const userId = decoded.user_id ?? decoded.sub;
+                if (userId) {
+                  proxyReq.setHeader('x-user-id', userId);
+                  proxyReq.setHeader('x-user-role', decoded.role ?? '');
+                }
+              } catch {
+                // Token inválido — el chat-service devolverá 401
+              }
+            }
+
             proxyReq.removeHeader('authorization');
+
+            // ── 2. Re-stream del body DESPUÉS de todos los setHeader/removeHeader ──
+            // El body-parser global de NestJS consume el stream del request antes
+            // de que el proxy lo pueda pipear. write() compromete los headers,
+            // por eso debe ir al final.
+            if (req.body && Object.keys(req.body).length > 0) {
+              const bodyData = JSON.stringify(req.body);
+              proxyReq.setHeader('Content-Type', 'application/json');
+              proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+              proxyReq.write(bodyData);
+            }
           },
         }),
       )
