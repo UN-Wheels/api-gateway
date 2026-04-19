@@ -134,8 +134,23 @@ export class AppModule implements NestModule {
             target: routesUrl,
             changeOrigin: true,
             pathRewrite: { '^/api/routes': '' },
-            onProxyReq: (proxyReq) => {
-              proxyReq.removeHeader('authorization');
+            onProxyReq: (proxyReq, req: any) => {
+              const token =
+                req.cookies?.[cookieName] ||
+                req.headers?.authorization?.replace(/^Bearer\s+/i, '');
+
+              if (token) {
+                proxyReq.setHeader('Authorization', `Bearer ${token}`);
+              }
+
+              proxyReq.removeHeader('cookie');
+
+              if (req.body && Object.keys(req.body).length > 0) {
+                const bodyData = JSON.stringify(req.body);
+                proxyReq.setHeader('Content-Type', 'application/json');
+                proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+                proxyReq.write(bodyData);
+              }
             },
           }),
         )
