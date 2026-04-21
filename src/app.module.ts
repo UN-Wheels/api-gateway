@@ -36,7 +36,6 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     const authUrl = this.configService.get<string>('services.auth');
     const chatUrl = this.configService.get<string>('services.chat');
-    const routesUrl = this.configService.get<string>('services.routes');
     const jwtSecret = this.configService.get<string>('jwt.secret');
     const cookieName = this.configService.get<string>('cookie.name');
 
@@ -125,45 +124,7 @@ export class AppModule implements NestModule {
       )
       .forRoutes({ path: 'api/chat/*', method: RequestMethod.ALL });
 
-    // Proxy hacia routes-reservations-service
-    // Si ROUTES_SERVICE_URL no está configurado, el stub devuelve 503
-    if (routesUrl) {
-      consumer
-        .apply(
-          createProxyMiddleware({
-            target: routesUrl,
-            changeOrigin: true,
-            pathRewrite: { '^/api/routes': '' },
-            onProxyReq: (proxyReq, req: any) => {
-              const token =
-                req.cookies?.[cookieName] ||
-                req.headers?.authorization?.replace(/^Bearer\s+/i, '');
-
-              if (token) {
-                proxyReq.setHeader('Authorization', `Bearer ${token}`);
-              }
-
-              proxyReq.removeHeader('cookie');
-
-              if (req.body && Object.keys(req.body).length > 0) {
-                const bodyData = JSON.stringify(req.body);
-                proxyReq.setHeader('Content-Type', 'application/json');
-                proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-                proxyReq.write(bodyData);
-              }
-            },
-          }),
-        )
-        .forRoutes({ path: 'api/routes/*', method: RequestMethod.ALL });
-    } else {
-      consumer
-        .apply((_req, res, _next) => {
-          res.status(503).json({
-            message: 'Routes service not available yet',
-            available: false,
-          });
-        })
-        .forRoutes({ path: 'api/routes/*', method: RequestMethod.ALL });
-    }
+    // Las rutas de api/routes/* son manejadas por RoutesGatewayController,
+    // que incluye enriquecimiento de driverId/passengerId con datos del auth service.
   }
 }
