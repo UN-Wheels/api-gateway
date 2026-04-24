@@ -8,8 +8,8 @@ export default () => ({
   services: {
     auth: process.env.AUTH_SERVICE_URL || 'http://localhost:8000',
     chat: process.env.CHAT_SERVICE_URL || 'http://localhost:3001',
-    // Vacío = routes-service no está listo, el gateway responde con stub 503
     routes: process.env.ROUTES_SERVICE_URL || '',
+    notifications: process.env.NOTIFICATIONS_SERVICE_URL || 'http://localhost:3002',
   },
 
   cookie: {
