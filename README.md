@@ -8,6 +8,7 @@ Single entry point for all UN-Wheels microservices. Runs on port **8080**.
 - Auth cookie management (`Set-Cookie` on login, `HttpOnly`)
 - JWT forwarding as `Bearer` token to downstream services
 - WebSocket proxy to chat-service
+- WebSocket and REST proxy to notifications-service
 - **Response enrichment** for routes: replaces `driverId`, `passengerId`, `vehicleId` string IDs with full user/vehicle objects fetched from loggueo_service
 
 ## Microservices
@@ -16,6 +17,7 @@ Single entry point for all UN-Wheels microservices. Runs on port **8080**.
 |---|---|---|---|
 | loggueo_service | `/api/auth`, `/api/vehicles` | 8000 | `http-proxy-middleware` (vehicles), `AuthGatewayController` (auth) |
 | chat-service | `/api/chat` + WebSocket | 3001 | `http-proxy-middleware` |
+| notifications-service | `/api/notifications` + WebSocket | 3002 | `NotificationsGatewayController` + `http-proxy-middleware` (upgrade) |
 | routes-reservations-service | `/api/routes` | configurable | `RoutesGatewayController` |
 
 ## Routing architecture
@@ -28,6 +30,9 @@ Request
   │
   ├─ /api/chat/*      ──► http-proxy-middleware ──► chat-service
   │                        (JWT validated, X-User-Id / X-User-Role injected)
+  │
+  ├─ /api/notifications/* ─► NotificationsGatewayController ─► notifications-service
+  │                          (JWT validated, X-User-Id / X-User-Role propagated)
   │
   ├─ /api/auth/*      ──► AuthGatewayController ──► loggueo_service /api/v1/auth/*
   │                        (login sets HttpOnly cookie, other routes proxied)
@@ -67,6 +72,7 @@ Enrichment uses a **per-request cache** to avoid duplicate lookups when the same
 | `JWT_SECRET` | `dev_secret_change_me` | Shared JWT signing secret |
 | `AUTH_SERVICE_URL` | `http://localhost:8000` | loggueo_service base URL |
 | `CHAT_SERVICE_URL` | `http://localhost:3001` | chat-service base URL |
+| `NOTIFICATIONS_SERVICE_URL` | `http://localhost:3002` | notifications-service base URL |
 | `ROUTES_SERVICE_URL` | _(empty)_ | routes-reservations-service URL. Empty → 503 stub |
 | `FRONTEND_URL` | `http://localhost:5173` | Allowed CORS origin |
 | `COOKIE_MAX_AGE` | `1800` | Auth cookie max age in seconds |
