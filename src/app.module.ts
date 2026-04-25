@@ -34,41 +34,9 @@ export class AppModule implements NestModule {
   constructor(private readonly configService: ConfigService) {}
 
   configure(consumer: MiddlewareConsumer) {
-    const authUrl = this.configService.get<string>('services.auth');
     const chatUrl = this.configService.get<string>('services.chat');
     const jwtSecret = this.configService.get<string>('jwt.secret');
     const cookieName = this.configService.get<string>('cookie.name');
-
-    // Proxy hacia loggueo_service para endpoints de vehículos.
-    // El JwtAuthGuard global no alcanza estas rutas (proxy middleware las intercepta
-    // primero), por lo que el JWT se extrae manualmente y se reenvía como Bearer.
-    consumer
-      .apply(
-        createProxyMiddleware({
-          target: authUrl,
-          changeOrigin: true,
-          pathRewrite: { '^/api/vehicles': '/api/v1/vehicles' },
-          onProxyReq: (proxyReq, req: any) => {
-            const token =
-              req.cookies?.[cookieName] ||
-              req.headers?.authorization?.replace(/^Bearer\s+/i, '');
-
-            if (token) {
-              proxyReq.setHeader('Authorization', `Bearer ${token}`);
-            }
-
-            proxyReq.removeHeader('cookie');
-
-            if (req.body && Object.keys(req.body).length > 0) {
-              const bodyData = JSON.stringify(req.body);
-              proxyReq.setHeader('Content-Type', 'application/json');
-              proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-              proxyReq.write(bodyData);
-            }
-          },
-        }),
-      )
-      .forRoutes({ path: 'api/vehicles/*', method: RequestMethod.ALL });
 
     // Proxy hacia chat-service (HTTP + WebSocket).
     // onProxyReq valida el JWT aquí porque el proxy middleware corre ANTES que
