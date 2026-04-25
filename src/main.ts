@@ -33,13 +33,35 @@ async function bootstrap() {
   // 'upgrade' a través del MiddlewareConsumer — hay que hacerlo sobre el
   // servidor HTTP nativo después de que app.listen() haya sido llamado.
   const chatUrl = configService.get<string>('services.chat');
-  const wsProxy = createProxyMiddleware({
+  const notificationsUrl = configService.get<string>('services.notifications');
+
+  const chatWsProxy = createProxyMiddleware({
     target: chatUrl,
     changeOrigin: true,
     pathRewrite: { '^/api/chat': '' },
     ws: true,
   });
-  app.getHttpServer().on('upgrade', wsProxy.upgrade);
+
+  const notificationsWsProxy = createProxyMiddleware({
+    target: notificationsUrl,
+    changeOrigin: true,
+    pathRewrite: { '^/api/notifications': '' },
+    ws: true,
+  });
+
+  app.getHttpServer().on('upgrade', (req, socket, head) => {
+    const requestUrl = req.url || '';
+
+    if (requestUrl.startsWith('/api/chat/socket.io')) {
+      return chatWsProxy.upgrade(req, socket, head);
+    }
+
+    if (requestUrl.startsWith('/api/notifications/socket.io')) {
+      return notificationsWsProxy.upgrade(req, socket, head);
+    }
+
+    socket.destroy();
+  });
 
   console.log(`API Gateway corriendo en http://localhost:${port}`);
 }
