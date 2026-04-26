@@ -9,8 +9,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
-  const port = configService.get<number>('port');
-  const frontendUrl = configService.get<string>('frontend.url');
+  const port         = configService.get<number>('port');
+  const frontendUrl  = configService.get<string>('frontend.url');
+  const chatUrl      = configService.get<string>('services.chat');
+  const notifUrl     = configService.get<string>('services.notifications');
 
   app.use(helmet());
   app.use(cookieParser());
@@ -26,15 +28,10 @@ async function bootstrap() {
     res.json({ status: 'ok', service: 'api-gateway' });
   });
 
-  await app.listen(port);
-
-  // WebSocket proxy: conectar el evento 'upgrade' del servidor HTTP al proxy
-  // del chat-service. Esto es necesario porque NestJS no expone el evento
-  // 'upgrade' a través del MiddlewareConsumer — hay que hacerlo sobre el
-  // servidor HTTP nativo después de que app.listen() haya sido llamado.
-  const chatUrl = configService.get<string>('services.chat');
-  const notificationsUrl = configService.get<string>('services.notifications');
-
+  // ── Socket.IO proxies ────────────────────────────────────────────────────────
+  // Se crean ANTES de app.listen() para poder registrarlos como middleware
+  // Express e interceptar el HTTP long-polling de Socket.IO antes de que
+  // llegue al enrutador de NestJS.
   const chatWsProxy = createProxyMiddleware({
     target: chatUrl,
     changeOrigin: true,
@@ -42,24 +39,38 @@ async function bootstrap() {
     ws: true,
   });
 
-  const notificationsWsProxy = createProxyMiddleware({
-    target: notificationsUrl,
+  const notifWsProxy = createProxyMiddleware({
+    target: notifUrl,
     changeOrigin: true,
     pathRewrite: { '^/api/notifications': '' },
     ws: true,
   });
 
+  // Interceptar polling HTTP de Socket.IO antes del router de NestJS.
+  // Sin esto, las peticiones polling llegan al NotificationsGatewayController
+  // que las reescribe con la ruta incorrecta.
+  app.use((req, res, next) => {
+    const url: string = req.url ?? '';
+    if (url.startsWith('/api/chat/socket.io')) {
+      return (chatWsProxy as any)(req, res, next);
+    }
+    if (url.startsWith('/api/notifications/socket.io')) {
+      return (notifWsProxy as any)(req, res, next);
+    }
+    next();
+  });
+
+  await app.listen(port);
+
+  // Upgrade HTTP→WS (debe registrarse después de listen para tener httpServer)
   app.getHttpServer().on('upgrade', (req, socket, head) => {
-    const requestUrl = req.url || '';
-
-    if (requestUrl.startsWith('/api/chat/socket.io')) {
-      return chatWsProxy.upgrade(req, socket, head);
+    const url = req.url ?? '';
+    if (url.startsWith('/api/chat/socket.io')) {
+      return (chatWsProxy as any).upgrade(req, socket, head);
     }
-
-    if (requestUrl.startsWith('/api/notifications/socket.io')) {
-      return notificationsWsProxy.upgrade(req, socket, head);
+    if (url.startsWith('/api/notifications/socket.io')) {
+      return (notifWsProxy as any).upgrade(req, socket, head);
     }
-
     socket.destroy();
   });
 
