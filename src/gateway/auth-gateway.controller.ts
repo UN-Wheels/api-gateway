@@ -40,9 +40,12 @@ export class AuthGatewayController {
 
       const { access_token } = response.data;
 
+      // TLS is always terminated upstream by rp-web, so the cookie must always
+      // be Secure. Never rely on NODE_ENV for this — the gateway is always
+      // behind HTTPS in this deployment.
       res.cookie(cookieName, access_token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: true,
         sameSite: 'lax',
         maxAge: cookieMaxAge * 1000,
       });
